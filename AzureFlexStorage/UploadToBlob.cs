@@ -1,9 +1,11 @@
+using Azure.Storage.Blobs;
+using AzureFlexStorage.Resources;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -14,21 +16,27 @@ namespace AzureFlexStorage
         [FunctionName("UploadToBlob")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] HttpRequest req,
+            [Blob("samples-workitems/{name}", FileAccess.Write, Connection = "AzureWebJobsStorage")] BlobClient blobClient,
             ILogger log)
         {
             log.LogInformation("C# HTTP trigger function processed a request.");
 
-            string name = req.Query["name"];
+            using (var stream = new MemoryStream())
+            {
+                await req.Body.CopyToAsync(stream);
+                stream.Position = 0;
+                await blobClient.UploadAsync(stream, overwrite: true);
+            }
 
-            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            dynamic data = JsonConvert.DeserializeObject(requestBody);
-            name = name ?? data?.name;
+            var response = new
+            {
+                Message = Messages.FileUploadSuccess,
+                FileName = blobClient.Name,
+                BlobUri = blobClient.Uri,
+                UploadTime = DateTime.UtcNow
+            };
 
-            string responseMessage = string.IsNullOrEmpty(name)
-                ? "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
-                : $"Hello, {name}. This HTTP triggered function executed successfully.";
-
-            return new OkObjectResult(responseMessage);
+            return new OkObjectResult(response);
         }
     }
 }
